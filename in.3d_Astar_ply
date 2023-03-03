@@ -1,0 +1,91 @@
+#dimension 3
+variable fname index PE_cl100.txt
+variable simname index PE_cl100
+variable T equal 1.0
+boundary p p p
+
+units           lj
+neigh_modify    delay 1 every 1 check yes
+
+atom_style      bond
+log             log.${simname}.txt
+read_data       ${fname}
+bond_style      harmonic
+bond_coeff      1 1000 1.0
+#angle_style     harmonic
+#angle_coeff     1 60 109.5
+#angle_coeff     1 60 109.5
+#dihedral_style  multi/harmonic
+#dihedral_coeff  1 1.73 -4.49 0.776 6.99 0.0
+
+pair_style      lj/cut 1.12246
+#variable concentration equal 0.001
+#variable a_const equal v_concentration^(-1.0/3.0)
+variable fa equal 0.0 #1.0
+variable dmp equal 1.0 #100
+#variable name index lj-active_fa=${fa}_dmp=${dmp}_T=$TK
+
+#shell   mkdir ${name}
+#shell   cd ${name}
+
+#lattice sc ${a_const}
+#region box block 0 10 0 10 0 10 units lattice
+#create_box 1 box
+#create_atoms 1 box
+pair_coeff      1 1 1.0 1.0 1.12246
+#pair_coeff     1 2 0.112 4.01 10.5
+#pair_coeff      1 2 1.0 1.0 1.12246
+#pair_coeff     2 2 0.112 4.01 10.5
+#pair_coeff      2 2 1.0 1.0 1.12246
+# groups and computes
+group chain type 1 # group chain atoms to calculate Rg
+compute 0 chain gyration # Rg calculation
+#group pin type 2
+group moving type 1  #chain = moving atoms. The rest are still
+#velocity moving create 0.3 22763009
+compute temp_c moving temp
+#compute csym all centro/atom fcc
+compute peratom all pe/atom
+
+
+#write_data data.0.data
+
+thermo_style    custom step temp press lx vol ke pe etotal density
+thermo          200
+
+#em:
+#minimize 1e-6 1e-6 1000 10000
+
+#turn on "activity" (if fa=0 activity is off):
+fix 0 moving propel/self velocity ${fa}
+#Langevin thermostat:
+fix 1 moving langevin $T $T ${dmp} 12342021
+#integrator:
+fix 2 moving nve
+
+#equilibration:
+velocity moving create $T 1234567 mom yes rot yes dist gaussian
+timestep 0.001
+run 20000
+#write_data EQ_fa=${fa}_dmp=${dmp}_T=$TK.data
+
+thermo          1000
+reset_timestep  0
+#computes:
+compute 1 all rdf 100 1 1
+compute 2 all msd com yes
+compute 3 all vacf
+compute 4 all gyration
+#MD:
+fix 3 all ave/time 500 200 100000 c_1[*] ave running file RDF.txt mode vector
+fix 4 all print 100 "$(step) $(c_2[4])" file MSD.txt screen no
+fix 5 all print 1000 "$(step)   $(temp:%.4f)    $(press:%.5g)   $(lx:%.3f)      $(vol:%.3f)     $(1000*density:%.5g)" file thermo.txt title "Step       T, K    p, atm  L, A    V, A^3  rho, kg/m3" screen no
+fix 6 all print 1000 "$(step)   $(pe)   $(ke)" file energy.txt title "Step      Ep      Ek" screen no
+fix 7 all print 100 "$(step)    $(c_3[1]:%.4g)  $(c_3[2]:%.4g)  $(c_3[3]:%.4g)  $(c_3[4]:%.6g)" file VACF.txt title "Step vacf_x  vacf_y  vacf_z  VACF" screen no
+fix 8 all print 1000 "$(step) $(c_4)" file gyration.txt screen no
+#xyz or dcd:
+dump id1 all custom 10000 ply_*.cfg id mol type xu yu zu vx vy vz
+#dump id1 all custom 10000 ring_*.cfg xu yu zu vx vy vz
+dump 1 all xyz 10000 frames.xyz
+run 5000000
+
